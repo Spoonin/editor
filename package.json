@@ -1,0 +1,25 @@
+{
+  "name": "editor",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^4.4.5",
+    "@fontsource/noto-sans": "^4.4.5",
+    "@fontsource/noto-sans-jp": "^4.4.5",
+    "@fontsource/noto-sans-sc": "^4.4.5",
+    "canvaskit-wasm": "0.39.1",
+    "grapheme-splitter": "^1.0.4"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "vite": "^6.2.0",
+    "vitest": "^3.2.2"
+  }
+}
