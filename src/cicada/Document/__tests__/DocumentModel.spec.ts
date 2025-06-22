@@ -1,10 +1,10 @@
 import { describe, expect, beforeEach, it } from 'vitest';
 import { Document } from '../Document';
-import { DocumentModel, ClipboardData } from '../DocumentModel';
+import { DocumentModel } from '../DocumentModel';
 
 describe('Document Model', () => {
     let testDoc: Document;
-    let editor: DocumentModel;
+    let model: DocumentModel;
     
     beforeEach(() => {
         testDoc = {
@@ -13,7 +13,7 @@ describe('Document Model', () => {
                     text: "First paragraph",
                     runs: [
                         {
-                            length: 14,
+                            length: 15,
                             style: { fontSize: 16 }
                         }
                     ],
@@ -21,70 +21,70 @@ describe('Document Model', () => {
                 }
             ]
         };
-        editor = new DocumentModel(testDoc);
+        model = new DocumentModel(testDoc);
     });
 
     describe('Text Insertion', () => {
         it('should insert text at the beginning of a paragraph and not add runs if style is the same', () => {
-            editor.insertText(
+            model.insertText(
                 { paragraphIndex: 0, offset: 0 },
                 "Hello ",
                 { fontSize: 16 }
             );
 
-            const result = editor.getDocument();
+            const result = model.getDocument();
             expect(result.paragraphs[0].text).toBe("Hello First paragraph");
             expect(result.paragraphs[0].runs).toHaveLength(1);
-            expect(result.paragraphs[0].runs[0].length).toBe(20);
+            expect(result.paragraphs[0].runs[0].length).toBe(21);
         });
 
         it('should insert text at the beginning of a paragraph and add run if style is different', () => {
-            editor.insertText(
+            model.insertText(
                 { paragraphIndex: 0, offset: 0 },
                 "Hello ",
                 { fontSize: 14 }
             );
 
-            const result = editor.getDocument();
+            const result = model.getDocument();
             expect(result.paragraphs[0].text).toBe("Hello First paragraph");
             expect(result.paragraphs[0].runs).toHaveLength(2);
             expect(result.paragraphs[0].runs[0].length).toBe(6);
-            expect(result.paragraphs[0].runs[1].length).toBe(14);
+            expect(result.paragraphs[0].runs[1].length).toBe(15);
         });
 
         it('should insert text in the middle of a paragraph', () => {
-            editor.insertText(
+            model.insertText(
                 { paragraphIndex: 0, offset: 5 },
                 " nice",
                 { fontSize: 18 }
             );
 
-            const result = editor.getDocument();
+            const result = model.getDocument();
             expect(result.paragraphs[0].text).toBe("First nice paragraph");
             expect(result.paragraphs[0].runs).toHaveLength(3);
             expect(result.paragraphs[0].runs[1].style.fontSize).toBe(18);
         });
 
         it('should insert text at the end of a paragraph', () => {
-            editor.insertText(
+            model.insertText(
                 { paragraphIndex: 0, offset: 15 },
                 " end",
                 { fontSize: 16 }
             );
 
-            const result = editor.getDocument();
+            const result = model.getDocument();
             expect(result.paragraphs[0].text).toBe("First paragraph end");
             expect(result.paragraphs[0].runs).toHaveLength(2);
         });
 
         it('should handle multi-paragraph text insertion', () => {
-            editor.insertText(
+            model.insertText(
                 { paragraphIndex: 0, offset: 5 },
                 " split\nNew paragraph\nThird",
                 { fontSize: 16 }
             );
 
-            const result = editor.getDocument();
+            const result = model.getDocument();
             expect(result.paragraphs).toHaveLength(3);
             expect(result.paragraphs[0].text).toBe("First split");
             expect(result.paragraphs[1].text).toBe("New paragraph");
@@ -93,44 +93,44 @@ describe('Document Model', () => {
 
         describe('Unicode Surrogate Pairs', () => {
             it('should properly handle emoji insertion', () => {
-                editor.insertText(
+                model.insertText(
                     { paragraphIndex: 0, offset: 5 },
                     "🐻‍❄",  // polar bear emoji
                     { fontSize: 16 }
                 );
 
-                const result = editor.getDocument();
+                const result = model.getDocument();
                 expect(result.paragraphs[0].text).toBe("First🐻‍❄ paragraph");
                 expect(result.paragraphs[0].runs).toHaveLength(1);
                 expect(result.paragraphs[0].runs[0].length).toBe(16);
             });
 
             it('should handle multiple emojis in text', () => {
-                editor.insertText(
+                model.insertText(
                     { paragraphIndex: 0, offset: 0 },
-                    "❄️✨",  // star + sparkles
+                    "❄️✨",  // snowflake + sparkles
                     { fontSize: 16 }
                 );
 
-                const result = editor.getDocument();
+                const result = model.getDocument();
                 expect(result.paragraphs[0].text).toBe("❄️✨First paragraph");
                 expect(result.paragraphs[0].runs).toHaveLength(1);
                 expect(result.paragraphs[0].runs[0].length).toBe(17);
             });
 
             it('should properly split runs with surrogate pairs', () => {
-                editor.insertText(
+                model.insertText(
                     { paragraphIndex: 0, offset: 5 },
                     "🎨",  // art palette emoji
                     { fontSize: 20 }  // different font size to force run split
                 );
 
-                const result = editor.getDocument();
+                const result = model.getDocument();
                 expect(result.paragraphs[0].text).toBe("First🎨 paragraph");
                 expect(result.paragraphs[0].runs).toHaveLength(3);
                 expect(result.paragraphs[0].runs[0].length).toBe(5);  // "First"
-                expect(result.paragraphs[0].runs[1].length).toBe(2);  // emoji (surrogate pair)
-                expect(result.paragraphs[0].runs[2].length).toBe(9);  // " paragraph"
+                expect(result.paragraphs[0].runs[1].length).toBe(1);  // emoji (surrogate pair)
+                expect(result.paragraphs[0].runs[2].length).toBe(10);  // " paragraph"
             });
         });
     });
@@ -151,38 +151,38 @@ describe('Document Model', () => {
                     }
                 ]
             };
-            editor = new DocumentModel(testDoc);
+            model = new DocumentModel(testDoc);
         });
 
         it('should delete text within a single paragraph', () => {
-            editor.deleteText(
+            model.deleteText(
                 { paragraphIndex: 0, offset: 6 },
                 { paragraphIndex: 0, offset: 10 }
             );
 
-            const result = editor.getDocument();
+            const result = model.getDocument();
             expect(result.paragraphs[0].text).toBe("First graph");
             expect(result.paragraphs[0].runs).toHaveLength(1);
         });
 
         it('should delete text across multiple paragraphs', () => {
-            editor.deleteText(
+            model.deleteText(
                 { paragraphIndex: 0, offset: 6 },
                 { paragraphIndex: 1, offset: 7 }
             );
 
-            const result = editor.getDocument();
+            const result = model.getDocument();
             expect(result.paragraphs).toHaveLength(1);
             expect(result.paragraphs[0].text).toBe("First paragraph");
         });
 
         it('should merge paragraphs when deleting paragraph boundary', () => {
-            editor.deleteText(
+            model.deleteText(
                 { paragraphIndex: 0, offset: 15 },
                 { paragraphIndex: 1, offset: 0 }
             );
 
-            const result = editor.getDocument();
+            const result = model.getDocument();
             expect(result.paragraphs).toHaveLength(1);
             expect(result.paragraphs[0].text).toBe("First paragraphSecond paragraph");
         });
@@ -203,53 +203,53 @@ describe('Document Model', () => {
                         }
                     ]
                 };
-                editor = new DocumentModel(testDoc);
+                model = new DocumentModel(testDoc);
             });
 
             it('should properly delete a single emoji', () => {
-                editor.deleteText(
+                model.deleteText(
                     { paragraphIndex: 0, offset: 6 },
                     { paragraphIndex: 0, offset: 8 }
                 );
 
-                const result = editor.getDocument();
-                expect(result.paragraphs[0].text).toBe("Hello  World");
+                const result = model.getDocument();
+                expect(result.paragraphs[0].text).toBe("Hello World");
                 expect(result.paragraphs[0].runs).toHaveLength(1);
                 expect(result.paragraphs[0].runs[0].length).toBe(11);
             });
 
             it('should handle deletion across multiple emojis', () => {
-                editor.deleteText(
+                model.deleteText(
                     { paragraphIndex: 1, offset: 5 },
-                    { paragraphIndex: 1, offset: 9 }
+                    { paragraphIndex: 1, offset: 8 }
                 );
 
-                const result = editor.getDocument();
-                expect(result.paragraphs[1].text).toBe("Next  Line");
+                const result = model.getDocument();
+                expect(result.paragraphs[1].text).toBe("Next Line");
                 expect(result.paragraphs[1].runs).toHaveLength(1);
                 expect(result.paragraphs[1].runs[0].length).toBe(9);
             });
 
             it('should properly merge paragraphs containing emojis', () => {
-                editor.deleteText(
+                model.deleteText(
                     { paragraphIndex: 0, offset: 13 },
                     { paragraphIndex: 1, offset: 0 }
                 );
 
-                const result = editor.getDocument();
+                const result = model.getDocument();
                 expect(result.paragraphs).toHaveLength(1);
                 expect(result.paragraphs[0].text).toBe("Hello ❄️ WorldNext 🎈🐻‍❄ Line");
                 expect(result.paragraphs[0].runs).toHaveLength(1);
-                expect(result.paragraphs[0].runs[0].length).toBe(26);
+                expect(result.paragraphs[0].runs[0].length).toBe(25);
             });
 
             it('should handle deletion spanning an emoji boundary', () => {
-                editor.deleteText(
+                model.deleteText(
                     { paragraphIndex: 0, offset: 7 },
-                    { paragraphIndex: 0, offset: 9 }
+                    { paragraphIndex: 0, offset: 8 }
                 );
 
-                const result = editor.getDocument();
+                const result = model.getDocument();
                 expect(result.paragraphs[0].text).toBe("Hello ❄️World");
                 expect(result.paragraphs[0].runs).toHaveLength(1);
                 expect(result.paragraphs[0].runs[0].length).toBe(12);

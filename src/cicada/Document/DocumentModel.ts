@@ -1,6 +1,5 @@
 import { Document, Paragraph, Run } from './Document';
 import { TextStyle } from 'canvaskit-wasm';
-import GraphemeSplitter from 'grapheme-splitter';
 
 // Add interface for clipboard data
 export interface ClipboardData {
@@ -12,17 +11,23 @@ export interface ClipboardData {
 
 export class DocumentModel {
     private document: Document;
-    private graphemeSplitter: GraphemeSplitter;
+    private segmenter: Intl.Segmenter;
 
     constructor(document: Document) {
         this.document = document;
-        this.graphemeSplitter = new GraphemeSplitter();
+        this.segmenter = new Intl.Segmenter();
+    }
+
+    private sliceParagraphText(index: number, start: number, end?: number): string {
+        const graphemes = [...this.segmenter.segment(this.document.paragraphs[index].text)];
+        const slicedGraphemes = graphemes.slice(start, end);
+        return slicedGraphemes.map((x) => x.segment).join('');
     }
 
     insertText(position: { paragraphIndex: number; offset: number }, text: string, style: TextStyle): void {
         text = text.normalize('NFC'); // Normalize text to NFC form
 
-        const textLength = this.graphemeSplitter.countGraphemes(text);
+        const textLength = [...this.segmenter.segment(text)].length;
         
         const paragraph = this.document.paragraphs[position.paragraphIndex];
         if (!paragraph) {
@@ -107,16 +112,14 @@ export class DocumentModel {
     private insertMultiParagraphText(position: { paragraphIndex: number; offset: number }, text: string, style: TextStyle): void {
         const paragraphs = text.split('\n');
         const paragraph = this.document.paragraphs[position.paragraphIndex];
-        
+
         // Split the current paragraph's text
 
-        const paragraphGraphemes = this.graphemeSplitter.splitGraphemes(paragraph.text)
-
-        const beforeText = paragraphGraphemes.slice(0, position.offset);
-        const afterText = paragraphGraphemes.slice(position.offset);
+        const beforeText = this.sliceParagraphText(position.paragraphIndex, 0, position.offset);
+        const afterText = this.sliceParagraphText(position.paragraphIndex, position.offset);
         
         // Update the first paragraph
-        paragraph.text = beforeText.join('') + paragraphs[0];
+        paragraph.text = beforeText + paragraphs[0];
         this.updateRunsForSplit(paragraph, position.offset);
         
         // Create new paragraphs for the middle parts
@@ -166,41 +169,26 @@ export class DocumentModel {
             throw new Error('Invalid paragraph index');
         }
 
-        // Handle surrogate pairs by ensuring we don't split them
-        let actualStart = start;
-        let actualEnd = end;
-        
-        // Check if we're in the middle of a surrogate pair at the start
-        if (this.isHighSurrogate(paragraph.text.charCodeAt(start - 1))) {
-            actualStart++;
-        }
-        
-        // Check if we're in the middle of a surrogate pair at the end
-        if (this.isLowSurrogate(paragraph.text.charCodeAt(end))) {
-            actualEnd--;
-        }
+        const paragraphGraphemes = [...this.segmenter.segment(paragraph.text)];
+        const actualStart = Math.max(0, start);
+        const actualEnd = Math.min(paragraphGraphemes.length, end);
 
-        paragraph.text = paragraph.text.slice(0, actualStart) + paragraph.text.slice(actualEnd);
+        
+
+        paragraph.text = paragraphGraphemes.slice(0, actualStart).map((x)=>x.segment).join('') +
+                        paragraphGraphemes.slice(actualEnd).map((x)=>x.segment).join('');
         this.updateRunsForDeletion(paragraph, actualStart, actualEnd - actualStart);
         this.updateRunLengths(paragraph);
     }
 
-    private isHighSurrogate(code: number): boolean {
-        return code >= 0xD800 && code <= 0xDBFF;
-    }
-
-    private isLowSurrogate(code: number): boolean {
-        return code >= 0xDC00 && code <= 0xDFFF;
-    }
-
     private deleteMultiParagraph(start: { paragraphIndex: number; offset: number }, end: { paragraphIndex: number; offset: number }): void {
         // Get the start and end paragraphs
-        const startPara = this.document.paragraphs[start.paragraphIndex];
-        const endPara = this.document.paragraphs[end.paragraphIndex];
+        const startParagraph = this.document.paragraphs[start.paragraphIndex];
+        const endParagraph = this.document.paragraphs[end.paragraphIndex];
 
         // Combine the remaining text
-        const newText = startPara.text.slice(0, start.offset) + endPara.text.slice(end.offset);
-        startPara.text = newText;
+        const newText = this.sliceParagraphText(start.paragraphIndex, 0, start.offset) + this.sliceParagraphText(end.paragraphIndex, end.offset);
+        startParagraph.text = newText;
 
         // Remove the paragraphs in between
         this.document.paragraphs.splice(
@@ -209,15 +197,15 @@ export class DocumentModel {
         );
 
         // Update the runs in the combined paragraph
-        this.updateRunsForMultiParagraphDeletion(startPara, start.offset, endPara, end.offset);
-        this.updateRunLengths(startPara);
+        this.updateRunsForMultiParagraphDeletion(startParagraph, start.offset, endParagraph, end.offset);
+        this.updateRunLengths(startParagraph);
     }
 
     private updateRunLengths(paragraph: Paragraph): void {
         let currentOffset = 0;
         for (const run of paragraph.runs) {
             // Update run length based on the actual text length it covers
-            const nextOffset = Math.min(currentOffset + run.length, this.graphemeSplitter.countGraphemes(paragraph.text));
+            const nextOffset = Math.min(currentOffset + run.length, [...this.segmenter.segment(paragraph.text)].length);
             run.length = nextOffset - currentOffset;
             currentOffset = nextOffset;
         }
@@ -526,50 +514,69 @@ export class DocumentModel {
     }
 
     private updateRunsForMultiParagraphDeletion(startPara: Paragraph, startOffset: number, endPara: Paragraph, endOffset: number): void {
-        // Update runs in start paragraph
+        // Trim runs in start paragraph up to startOffset
         let currentOffset = 0;
         let startRunIndex = -1;
-        
         for (let i = 0; i < startPara.runs.length; i++) {
-            if (currentOffset + startPara.runs[i].length > startOffset) {
+            const run = startPara.runs[i];
+            if (currentOffset + run.length > startOffset) {
                 startRunIndex = i;
                 break;
-            }
-            currentOffset += startPara.runs[i].length;
-        }
-
-        if (startRunIndex === -1) {
-            startPara.runs = [];
-            return;
-        }
-
-        // Keep runs before deletion point in start paragraph
-        const startRun = startPara.runs[startRunIndex];
-        const startSplitOffset = startOffset - currentOffset;
-        if (startSplitOffset > 0) {
-            startRun.length = startSplitOffset;
-            startPara.runs.splice(startRunIndex + 1);
-        } else {
-            startPara.runs.splice(startRunIndex);
-        }
-
-        // Add remaining runs from end paragraph
-        currentOffset = 0;
-        for (const run of endPara.runs) {
-            if (currentOffset + run.length > endOffset) {
-                const remainingLength = run.length - (endOffset - currentOffset);
-                if (remainingLength > 0) {
-                    startPara.runs.push({
-                        length: remainingLength,
-                        style: run.style
-                    });
-                }
             }
             currentOffset += run.length;
         }
 
-        // Merge runs with identical styles
+        if (startRunIndex !== -1) {
+            const startRun = startPara.runs[startRunIndex];
+            const startSplitOffset = startOffset - currentOffset;
+            if (startSplitOffset > 0) {
+                startRun.length = startSplitOffset;
+                startPara.runs.splice(startRunIndex + 1);
+            } else {
+                startPara.runs.splice(startRunIndex);
+            }
+        } else {
+            startPara.runs = [];
+        }
+
+        // Append runs from end paragraph starting from endOffset
+        let globalGraphemeOffset = 0;
+        for (const run of endPara.runs) {
+            const runGraphemeCount = run.length;
+            if (globalGraphemeOffset + runGraphemeCount > endOffset) {
+                const runStart = Math.max(endOffset - globalGraphemeOffset, 0);
+                const runEnd = runGraphemeCount;
+                const length = runEnd - runStart;
+                if (length > 0) {
+                    startPara.runs.push({
+                        length: length,
+                        style: run.style
+                    });
+                }
+            }
+            globalGraphemeOffset += runGraphemeCount;
+        }
+
+        // Merge adjacent runs with the same style
         startPara.runs = this.mergeAdjacentRuns(startPara.runs);
+
+        // If all runs have the same style, merge into a single run
+        if (startPara.runs.length > 0) {
+            const firstStyle = JSON.stringify(startPara.runs[0].style);
+            const allSameStyle = startPara.runs.every(r => JSON.stringify(r.style) === firstStyle);
+            if (allSameStyle) {
+                startPara.runs = [{
+                    length: [...this.segmenter.segment(startPara.text)].length,
+                    style: startPara.runs[0].style
+                }];
+            }
+        } else {
+            // If no runs remain, create a single run for the entire text
+            startPara.runs = [{
+                length: [...this.segmenter.segment(startPara.text)].length,
+                style: startPara.runs[0]?.style || {}
+            }];
+        }
     }
 
     private insertRunsAtOffset(paragraph: Paragraph, offset: number, runsToInsert: Run[]): void {
